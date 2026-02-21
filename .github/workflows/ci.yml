@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-import:
+    name: Syntax check & import test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile msms_peptide_dashboard.py
+
+      - name: Import check
+        run: |
+          python -c "
+          import ast, sys
+          with open('msms_peptide_dashboard.py') as f:
+              src = f.read()
+          tree = ast.parse(src)
+          fns = [n.name for n in ast.walk(tree)
+                 if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+          required = [
+              'score_psm', 'theoretical_ions_cached', 'MassIndex',
+              'build_index', 'run_search', 'apply_fdr', 'discover_novel',
+              'pipeline_worker', 'JobManager', '_learn_params',
+              '_read_all_spectra', '_parallel_score',
+          ]
+          missing = [r for r in required if r not in fns]
+          if missing:
+              print('MISSING functions:', missing)
+              sys.exit(1)
+          print('All', len(required), 'required functions present.')
+          "
+
+      - name: Benchmark script syntax check
+        run: python -m py_compile benchmark/compare_results.py
+
+      - name: Benchmark script help
+        run: python benchmark/compare_results.py --help
